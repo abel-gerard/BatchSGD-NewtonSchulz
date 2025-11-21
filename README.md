@@ -11,7 +11,7 @@ pip install -r requirements.txt
 
 ## Usage
 
-The source code is in `experiment.ipynb` with the backend written in Julia inside the `SGD_NS.jl` file. So you may also use the backend independently in Julia. The backend is inspired by the Muon algorithm found [here](https://github.com/KellerJordan/Muon/blob/master/muon.py).
+The source code is in [experiment.ipynb](experiment.ipynb) with the backend written in Julia inside the [batch_sgd_ns.jl](batch_sgd_ns.jl) file. So you may also use the backend independently in Julia. The backend is inspired by the Muon algorithm found [here](https://github.com/KellerJordan/Muon/blob/master/muon.py).
 
 The objective was to demonstrate the effect of Newton-Schulz normalization on the training of a simple linear model (any dense layer without activation function) using Batch Stochastic Gradient Descent (SGD) with momentum.
 
