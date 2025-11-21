@@ -2,7 +2,7 @@
 # https://github.com/KellerJordan/Muon/blob/master/muon.py
 
 
-using LinearAlgebra, Random
+using LinearAlgebra, Random, Statistics
 
 function NewtonSchulz5(
     G::AbstractMatrix{T}, steps::Int=5
@@ -41,7 +41,7 @@ function NewtonSchulz5(
 end
 
 #=
-    Compute update for weights using SGD with momentum
+    Compute update for weights using Mini-batch SGD with momentum
     and optional Newton-Schulz normalization.
     
     grad: 
@@ -125,7 +125,7 @@ function L2LossGradient(
 end
 
 #=
-    Perform a single training step using SGD with momentum
+    Perform a single training step using Mini-batch SGD with momentum
     and optional Newton-Schulz normalization.
 
     params:
@@ -162,7 +162,7 @@ function TrainStep(
 end
 
 #=
-    Train a linear model using Batch SGD with momentum
+    Train a linear model using Mini-batch SGD with momentum
     and optional Newton-Schulz normalization.
 
     params:
@@ -195,12 +195,15 @@ function Train(
 
     momentum = zeros(T, size(params))
     losses = zeros(T, epochs)
+    times = zeros(T, epochs)
 
     for epoch in 1:epochs
+        epoch_loss = 0.0
+        epoch_start = time_ns()
+
         indices = randperm(size(input, 1))
         input_shuffled = input[indices, :]
         target_shuffled = target[indices, :]
-        epoch_loss = 0.0
 
         for batch in 1:batch_size:size(input, 1)
             batch_end = min(batch + batch_size - 1, size(input, 1))
@@ -220,7 +223,65 @@ function Train(
             epoch_loss += batch_loss * (batch_end - batch + 1) / size(input, 1)
         end
         losses[epoch] = epoch_loss
+
+        epoch_end = time_ns()
+        times[epoch] = epoch_end - epoch_start
     end
 
-    return params, losses
+    return params, losses, times
+end
+
+#=
+    Train a linear model using Mini-batch SGD with momentum
+=#
+function TrainNSAdapt(
+    params::AbstractMatrix{T},
+    input::AbstractArray{T},
+    target::AbstractArray{T},
+    epochs::Int=1000,
+    batch_size::Int=size(input, 1),
+    adapt_threshold::T=T(1e-4),
+    learning_rate::T=T(0.01),
+    beta::T=T(0.95)
+) where T <: AbstractFloat
+
+    momentum = zeros(T, size(params))
+    losses = zeros(T, epochs)
+    times = zeros(T, epochs)
+
+    for epoch in 1:epochs
+        epoch_loss = 0.0
+        epoch_start = time_ns()
+
+        # Stagnation detection for adaptive Newton-Schulz
+        newton_schulz = std(losses[max(1, epoch-30):epoch]) >= adapt_threshold
+
+        indices = randperm(size(input, 1))
+        input_shuffled = input[indices, :]
+        target_shuffled = target[indices, :]
+
+        for batch in 1:batch_size:size(input, 1)
+            batch_end = min(batch + batch_size - 1, size(input, 1))
+            input_batch = input_shuffled[batch:batch_end, :]
+            target_batch = target_shuffled[batch:batch_end, :]
+            params, momentum = TrainStep(
+                params,
+                input_batch,
+                target_batch,
+                momentum,
+                newton_schulz,
+                learning_rate,
+                beta
+            )
+            pred_batch = LinearPredict(params, input_batch)
+            batch_loss = L2Loss(pred_batch, target_batch)
+            epoch_loss += batch_loss * (batch_end - batch + 1) / size(input, 1)
+        end
+        losses[epoch] = epoch_loss
+
+        epoch_end = time_ns()
+        times[epoch] = epoch_end - epoch_start
+    end
+
+    return params, losses, times
 end
