@@ -233,6 +233,24 @@ end
 
 #=
     Train a linear model using Mini-batch SGD with momentum
+    and adaptive Newton-Schulz normalization.
+
+    params:
+        Weight matrix (input_dim, output_dim).
+    input:
+        Input vector (, input_dim) or matrix (batch_size, input_dim).
+    target:
+        Target vector (, output_dim) or matrix (batch_size, output_dim).
+    epochs:
+        Number of training epochs.
+    batch_size:
+        Size of each training batch.
+    adapt_threshold:
+        Standard deviation threshold for loss stagnation detection.
+    learning_rate:
+        Learning rate for the SGD update.
+    beta:
+        Exponential moving average coefficient.
 =#
 function TrainNSAdapt(
     params::AbstractMatrix{T},
@@ -273,6 +291,76 @@ function TrainNSAdapt(
                 learning_rate,
                 beta
             )
+            pred_batch = LinearPredict(params, input_batch)
+            batch_loss = L2Loss(pred_batch, target_batch)
+            epoch_loss += batch_loss * (batch_end - batch + 1) / size(input, 1)
+        end
+        losses[epoch] = epoch_loss
+
+        epoch_end = time_ns()
+        times[epoch] = epoch_end - epoch_start
+    end
+
+    return params, losses, times
+end
+
+#=
+    Train a linear model using Mini-batch SGD with momentum
+    and SVD-based normalization.
+
+    params:
+        Weight matrix (input_dim, output_dim).
+    input:
+        Input vector (, input_dim) or matrix (batch_size, input_dim).
+    target:
+        Target vector (, output_dim) or matrix (batch_size, output_dim).
+    epochs:
+        Number of training epochs.
+    batch_size:
+        Size of each training batch.
+    learning_rate:
+        Learning rate for the SGD update.
+    beta:
+        Exponential moving average coefficient.
+=#
+function TrainSVD(
+    params::AbstractMatrix{T},
+    input::AbstractArray{T},
+    target::AbstractArray{T},
+    epochs::Int=1000,
+    batch_size::Int=size(input, 1),
+    learning_rate::T=T(0.01),
+    beta::T=T(0.95)
+) where T <: AbstractFloat
+
+    momentum = zeros(T, size(params))
+    losses = zeros(T, epochs)
+    times = zeros(T, epochs)
+
+    for epoch in 1:epochs
+        epoch_loss = 0.0
+        epoch_start = time_ns()
+
+        indices = randperm(size(input, 1))
+        input_shuffled = input[indices, :]
+        target_shuffled = target[indices, :]
+
+        for batch in 1:batch_size:size(input, 1)
+            batch_end = min(batch + batch_size - 1, size(input, 1))
+            input_batch = input_shuffled[batch:batch_end, :]
+            target_batch = target_shuffled[batch:batch_end, :]
+            
+            pred = LinearPredict(params, input)
+            grad = L2LossGradient(input, pred, target)
+
+            momentum = beta * momentum + (1 - beta) * grad
+            svd_result = svd(momentum)
+            update = svd_result.U * Diagonal(ones(T, size(momentum, 2))) * svd_result.V'
+
+            rows, cols = size(grad)
+            update *= sqrt(max(1., rows / cols))
+            params -= learning_rate * update
+
             pred_batch = LinearPredict(params, input_batch)
             batch_loss = L2Loss(pred_batch, target_batch)
             epoch_loss += batch_loss * (batch_end - batch + 1) / size(input, 1)
